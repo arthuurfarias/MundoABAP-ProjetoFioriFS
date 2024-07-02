@@ -20,12 +20,6 @@
     </item>
     <item>
      <ID>I</ID>
-     <KEY>002</KEY>
-     <ENTRY>Data de Criação</ENTRY>
-     <LENGTH>132</LENGTH>
-    </item>
-    <item>
-     <ID>I</ID>
      <KEY>003</KEY>
      <ENTRY>Criado Por</ENTRY>
      <LENGTH>132</LENGTH>
@@ -190,6 +184,12 @@
      <ID>I</ID>
      <KEY>030</KEY>
      <ENTRY>Logical system</ENTRY>
+     <LENGTH>132</LENGTH>
+    </item>
+    <item>
+     <ID>I</ID>
+     <KEY>031</KEY>
+     <ENTRY>Data de Criação</ENTRY>
      <LENGTH>132</LENGTH>
     </item>
    </TPOOL>

@@ -8,7 +8,7 @@ public section.
   types:
   begin of TS_OV_HEADER,
      ORDEMID type I,
-     DATACRICACAO type TIMESTAMP,
+     DATACRIACAO type TIMESTAMP,
      CRIADOPOR type C length 20,
      CLIENTEID type I,
      TOTALITENS type P length 8 decimals 2,
@@ -210,8 +210,8 @@ lo_property->/iwbep/if_mgw_odata_annotatabl~create_annotation( 'sap' )->add(
       EXPORTING
         iv_key      = 'unicode'
         iv_value    = 'false' ).
-lo_property = lo_entity_type->create_property( iv_property_name = 'DataCricacao' iv_abap_fieldname = 'DATACRICACAO' ). "#EC NOTEXT
-lo_property->set_label_from_text_element( iv_text_element_symbol = '002' iv_text_element_container = gc_incl_name ).  "#EC NOTEXT
+lo_property = lo_entity_type->create_property( iv_property_name = 'DataCriacao' iv_abap_fieldname = 'DATACRIACAO' ). "#EC NOTEXT
+lo_property->set_label_from_text_element( iv_text_element_symbol = '031' iv_text_element_container = gc_incl_name ).  "#EC NOTEXT
 lo_property->set_type_edm_datetime( ).
 lo_property->set_creatable( abap_false ).
 lo_property->set_updatable( abap_false ).
@@ -715,7 +715,7 @@ lo_entity_set->set_filter_required( abap_false ).
 *&---------------------------------------------------------------------*
 
 
-  CONSTANTS: lc_gen_date_time TYPE timestamp VALUE '20240701093702'.                  "#EC NOTEXT
+  CONSTANTS: lc_gen_date_time TYPE timestamp VALUE '20240701103746'.                  "#EC NOTEXT
   rv_last_modified = super->get_last_modified( ).
   IF rv_last_modified LT lc_gen_date_time.
     rv_last_modified = lc_gen_date_time.
@@ -746,11 +746,11 @@ ls_text_element-parent_artifact_type   = 'ETYP'.                                
 ls_text_element-text_symbol            = '001'.              "#EC NOTEXT
 APPEND ls_text_element TO rt_text_elements.
 clear ls_text_element.
-ls_text_element-artifact_name          = 'DataCricacao'.                 "#EC NOTEXT
+ls_text_element-artifact_name          = 'DataCriacao'.                 "#EC NOTEXT
 ls_text_element-artifact_type          = 'PROP'.                                       "#EC NOTEXT
 ls_text_element-parent_artifact_name   = 'OV_Header'.                            "#EC NOTEXT
 ls_text_element-parent_artifact_type   = 'ETYP'.                                       "#EC NOTEXT
-ls_text_element-text_symbol            = '002'.              "#EC NOTEXT
+ls_text_element-text_symbol            = '031'.              "#EC NOTEXT
 APPEND ls_text_element TO rt_text_elements.
 clear ls_text_element.
 ls_text_element-artifact_name          = 'CriadoPor'.                 "#EC NOTEXT
