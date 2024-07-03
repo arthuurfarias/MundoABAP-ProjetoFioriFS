@@ -4,6 +4,9 @@ class ZCL_ZOV_DPC_EXT definition
   create public .
 
 public section.
+
+  methods /IWBEP/IF_MGW_APPL_SRV_RUNTIME~CREATE_DEEP_ENTITY
+    redefinition .
 protected section.
 
   methods CHECK_SUBSCRIPTION_AUTHORITY
@@ -34,9 +37,9 @@ protected section.
     redefinition .
   methods OV_MESSAGESET_GET_ENTITY
     redefinition .
-  methods OV_MESSAGESET_UPDATE_ENTITY
-    redefinition .
   methods OV_MESSAGESET_GET_ENTITYSET
+    redefinition .
+  methods OV_MESSAGESET_UPDATE_ENTITY
     redefinition .
 private section.
 ENDCLASS.
@@ -44,6 +47,159 @@ ENDCLASS.
 
 
 CLASS ZCL_ZOV_DPC_EXT IMPLEMENTATION.
+
+
+  METHOD /iwbep/if_mgw_appl_srv_runtime~create_deep_entity.
+**TRY.
+*CALL METHOD SUPER->/IWBEP/IF_MGW_APPL_SRV_RUNTIME~CREATE_DEEP_ENTITY
+*  EXPORTING
+**    iv_entity_name          =
+**    iv_entity_set_name      =
+**    iv_source_name          =
+*    IO_DATA_PROVIDER        =
+**    it_key_tab              =
+**    it_navigation_path      =
+*    IO_EXPAND               =
+**    io_tech_request_context =
+**  IMPORTING
+**    er_deep_entity          =
+*    .
+** CATCH /iwbep/cx_mgw_busi_exception .
+** CATCH /iwbep/cx_mgw_tech_exception .
+**ENDTRY.
+
+    DATA : ls_deep_entity  TYPE zcl_zov_mpc_ext=>ty_ordem_item.
+    DATA : ls_deep_item    TYPE zcl_zov_mpc_ext=>ts_ov_item.
+
+    DATA : ls_cab          TYPE ztovheader.
+    DATA : lt_item         TYPE STANDARD TABLE OF ztovitem.
+    DATA : ls_item         TYPE ztovitem.
+    DATA : ld_updkz        TYPE char1.
+    DATA : ld_datahora(14) TYPE c.
+
+    DATA(lo_msg) = me->/iwbep/if_mgw_conv_srv_runtime~get_message_container( ).
+
+    CALL METHOD io_data_provider->read_entry_data
+      IMPORTING
+        es_data = ls_deep_entity.
+
+    " cabeçalho
+    IF ls_deep_entity-ordemid = 0.
+      ld_updkz = 'I'.
+
+      MOVE-CORRESPONDING ls_deep_entity TO ls_cab.
+
+      "ls_cab-criacao_data    = sy-datum.
+      "ls_cab-criacao_hora    = sy-uzeit.
+      "ls_cab-criacao_usuario = sy-uname.
+
+      ld_datahora         = ls_deep_entity-datacriacao.
+      ls_cab-dtcriacao    = ld_datahora(8).
+      ls_cab-hrcriacao    = ld_datahora+8(6).
+
+      SELECT SINGLE MAX( ordemid )
+        INTO ls_cab-ordemid
+        FROM ztovheader.
+
+      ls_cab-ordemid = ls_cab-ordemid + 1.
+    ELSE.
+      ld_updkz = 'U'.
+
+      " carregando dados atuais
+      SELECT SINGLE *
+        INTO ls_cab
+        FROM ztovheader
+       WHERE ordemid = ls_deep_entity-ordemid.
+
+      ls_cab-clienteid  = ls_deep_entity-clienteid.
+      ls_cab-status     = ls_deep_entity-status.
+      ls_cab-totalitens = ls_deep_entity-totalitens.
+      ls_cab-totalfrete = ls_deep_entity-totalfrete.
+      ls_cab-totalordem = ls_cab-totalitens + ls_cab-totalfrete.
+    ENDIF.
+
+    " item
+    LOOP AT ls_deep_entity-toitem INTO ls_deep_item.
+      MOVE-CORRESPONDING ls_deep_item TO ls_item.
+
+      ls_item-ordemid = ls_cab-ordemid.
+      APPEND ls_item TO lt_item.
+    ENDLOOP.
+
+    " persistência cabeçalho
+    IF ld_updkz = 'I'.
+      INSERT ztovheader FROM ls_cab.
+      IF sy-subrc <> 0.
+        ROLLBACK WORK.
+
+        lo_msg->add_message_text_only(
+          EXPORTING
+            iv_msg_type = 'E'
+            iv_msg_text = 'Erro ao inserir ordem'
+        ).
+
+        RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+          EXPORTING
+            message_container = lo_msg.
+      ENDIF.
+    ELSE.
+      MODIFY ztovheader FROM ls_cab.
+      IF sy-subrc <> 0.
+        ROLLBACK WORK.
+
+        lo_msg->add_message_text_only(
+          EXPORTING
+            iv_msg_type = 'E'
+            iv_msg_text = 'Erro ao atualizar ordem'
+        ).
+
+        RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+          EXPORTING
+            message_container = lo_msg.
+      ENDIF.
+    ENDIF.
+
+    " persistência itens
+    DELETE FROM ztovitem WHERE ordemid = ls_cab-ordemid.
+    IF lines( lt_item ) > 0.
+      INSERT ztovitem FROM TABLE lt_item.
+      IF sy-subrc <> 0.
+        ROLLBACK WORK.
+
+        lo_msg->add_message_text_only(
+          EXPORTING
+            iv_msg_type = 'E'
+            iv_msg_text = 'Erro ao inserir itens'
+        ).
+
+        RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+          EXPORTING
+            message_container = lo_msg.
+      ENDIF.
+    ENDIF.
+
+    COMMIT WORK AND WAIT.
+
+    " atualizando deep entity de retorno
+
+    " cabeçalho
+    ls_deep_entity-ordemid = ls_cab-ordemid.
+    CONVERT DATE ls_cab-dtcriacao
+            TIME ls_cab-hrcriacao
+            INTO TIME STAMP ls_deep_entity-datacriacao
+            TIME ZONE 'UTC'. "sy-zonlo.
+
+    " item
+    LOOP AT ls_deep_entity-toitem ASSIGNING FIELD-SYMBOL(<ls_deep_item>).
+      <ls_deep_item>-ordemid = ls_cab-ordemid.
+    ENDLOOP.
+
+    CALL METHOD me->copy_data_to_ref
+      EXPORTING
+        is_data = ls_deep_entity
+      CHANGING
+        cr_data = er_deep_entity.
+  ENDMETHOD.
 
 
   method CHECK_SUBSCRIPTION_AUTHORITY.
@@ -97,8 +253,43 @@ CLASS ZCL_ZOV_DPC_EXT IMPLEMENTATION.
   ENDMETHOD.
 
 
-  method OV_HEADERSET_DELETE_ENTITY.
-  endmethod.
+  METHOD ov_headerset_delete_entity.
+    DATA: ls_key_tab LIKE LINE OF it_key_tab.
+
+    DATA(lo_msg) = me->/iwbep/if_mgw_conv_srv_runtime~get_message_container( ).
+
+    READ TABLE it_key_tab INTO ls_key_tab WITH KEY name = 'OrdemID'.
+    IF sy-subrc <> 0.
+      lo_msg->add_message_text_only(
+        EXPORTING
+          iv_msg_type = 'E'
+          iv_msg_text = 'OrdemId não informado'
+      ).
+
+      RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+        EXPORTING
+          message_container = lo_msg.
+    ENDIF.
+
+    DELETE FROM ztovitem WHERE ordemid = ls_key_tab-value.
+
+    DELETE FROM ztovheader WHERE ordemid = ls_key_tab-value.
+    IF sy-subrc <> 0.
+      ROLLBACK WORK.
+
+      lo_msg->add_message_text_only(
+        EXPORTING
+          iv_msg_type = 'E'
+          iv_msg_text = 'Erro ao remover ordem'
+      ).
+
+      RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+        EXPORTING
+          message_container = lo_msg.
+    ENDIF.
+
+    COMMIT WORK AND WAIT.
+  ENDMETHOD.
 
 
   METHOD ov_headerset_get_entity.
@@ -178,7 +369,7 @@ CLASS ZCL_ZOV_DPC_EXT IMPLEMENTATION.
 
     SELECT *
       FROM ztovheader
-     WHERE (iv_filter_string)
+     WHERE (iv_filter_string) "it_filter_select_options
   ORDER BY (ld_orderby)
       INTO TABLE @lt_cab
      UP TO @is_paging-top ROWS
@@ -198,8 +389,67 @@ CLASS ZCL_ZOV_DPC_EXT IMPLEMENTATION.
   ENDMETHOD.
 
 
-  method OV_HEADERSET_UPDATE_ENTITY.
-  endmethod.
+  METHOD ov_headerset_update_entity.
+    DATA: ld_error TYPE flag.
+
+    DATA(lo_msg) = me->/iwbep/if_mgw_conv_srv_runtime~get_message_container( ).
+
+    io_data_provider->read_entry_data(
+      IMPORTING
+        es_data = er_entity
+    ).
+
+    er_entity-ordemid = it_key_tab[ name = 'OrdemID' ]-value.
+
+    " validações
+    IF er_entity-clienteid = 0.
+      ld_error = 'X'.
+      lo_msg->add_message_text_only(
+        EXPORTING
+          iv_msg_type = 'E'
+          iv_msg_text = 'Cliente vazio'
+      ).
+    ENDIF.
+
+    IF er_entity-totalordem < 10.
+      ld_error = 'X'.
+      lo_msg->add_message(
+        EXPORTING
+          iv_msg_type   = 'E'
+          iv_msg_id     = 'ZOV'
+          iv_msg_number = 1
+          iv_msg_v1     = 'R$ 10,00'
+          iv_msg_v2     = |{ er_entity-ordemid }|
+      ).
+    ENDIF.
+
+    IF ld_error = 'X'.
+      RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+        EXPORTING
+          message_container = lo_msg
+          http_status_code  = 500.
+    ENDIF.
+
+    UPDATE ztovheader
+       SET clienteid  = er_entity-clienteid
+           totalitens = er_entity-totalitens
+           totalfrete = er_entity-totalfrete
+           totalordem = er_entity-totalordem
+           status     = er_entity-status
+     WHERE ordemid    = er_entity-ordemid.
+
+    IF sy-subrc <> 0.
+      lo_msg->add_message_text_only(
+        EXPORTING
+          iv_msg_type = 'E'
+          iv_msg_text = 'Erro ao atualizar ordem'
+      ).
+
+      RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+        EXPORTING
+          message_container = lo_msg.
+    ENDIF.
+  ENDMETHOD.
 
 
   METHOD ov_itemset_create_entity.
@@ -238,8 +488,30 @@ CLASS ZCL_ZOV_DPC_EXT IMPLEMENTATION.
   ENDMETHOD.
 
 
-  method OV_ITEMSET_DELETE_ENTITY.
-  endmethod.
+  METHOD ov_itemset_delete_entity.
+    DATA: ls_item    TYPE ztovitem.
+    DATA: ls_key_tab LIKE LINE OF it_key_tab.
+
+    DATA(lo_msg) = me->/iwbep/if_mgw_conv_srv_runtime~get_message_container( ).
+
+    ls_item-ordemid = it_key_tab[ name = 'OrdemID' ]-value.
+    ls_item-itemid  = it_key_tab[ name = 'ItemID' ]-value.
+
+    DELETE FROM ztovitem
+     WHERE ordemid = ls_item-ordemid
+       AND itemid  = ls_item-itemid.
+    IF sy-subrc <> 0.
+      lo_msg->add_message_text_only(
+        EXPORTING
+          iv_msg_type = 'E'
+          iv_msg_text = 'Erro ao remover item'
+      ).
+
+      RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+        EXPORTING
+          message_container = lo_msg.
+    ENDIF.
+  ENDMETHOD.
 
 
   METHOD ov_itemset_get_entity.
@@ -307,7 +579,7 @@ CLASS ZCL_ZOV_DPC_EXT IMPLEMENTATION.
     DATA: ls_key_tab       LIKE LINE OF it_key_tab.
 
     " input
-    READ TABLE it_key_tab INTO ls_key_tab WITH KEY name = 'OrdemId'.
+    READ TABLE it_key_tab INTO ls_key_tab WITH KEY name = 'OrdemID'.
     IF sy-subrc = 0.
       ld_ordemid = ls_key_tab-value.
 
@@ -325,8 +597,39 @@ CLASS ZCL_ZOV_DPC_EXT IMPLEMENTATION.
   ENDMETHOD.
 
 
-  method OV_ITEMSET_UPDATE_ENTITY.
-  endmethod.
+  METHOD ov_itemset_update_entity.
+    DATA(lo_msg) = me->/iwbep/if_mgw_conv_srv_runtime~get_message_container( ).
+
+    io_data_provider->read_entry_data(
+      IMPORTING
+        es_data = er_entity
+    ).
+
+    er_entity-ordemid  = it_key_tab[ name = 'OrdemID' ]-value.
+    er_entity-itemid   = it_key_tab[ name = 'ItemID' ]-value.
+    er_entity-precotot = er_entity-quantidade * er_entity-precouni.
+
+    UPDATE ztovitem
+       SET material   = er_entity-material
+           descricao  = er_entity-descricao
+           quantidade = er_entity-quantidade
+           precouni   = er_entity-precouni
+           precotot   = er_entity-precotot
+     WHERE ordemid    = er_entity-ordemid
+       AND itemid     = er_entity-itemid.
+
+    IF sy-subrc <> 0.
+      lo_msg->add_message_text_only(
+        EXPORTING
+          iv_msg_type = 'E'
+          iv_msg_text = 'Erro ao atualizar item'
+      ).
+
+      RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+        EXPORTING
+          message_container = lo_msg.
+    ENDIF.
+  ENDMETHOD.
 
 
   method OV_MESSAGESET_CREATE_ENTITY.
