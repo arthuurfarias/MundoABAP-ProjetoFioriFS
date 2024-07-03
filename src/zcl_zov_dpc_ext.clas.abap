@@ -101,12 +101,101 @@ CLASS ZCL_ZOV_DPC_EXT IMPLEMENTATION.
   endmethod.
 
 
-  method OV_HEADERSET_GET_ENTITY.
-  endmethod.
+  METHOD ov_headerset_get_entity.
+    DATA: ld_ordemid TYPE ztovheader-ordemid.
+    DATA: ls_key_tab LIKE LINE OF it_key_tab.
+    DATA: ls_cab     TYPE ztovheader.
+
+    DATA(lo_msg) = me->/iwbep/if_mgw_conv_srv_runtime~get_message_container( ).
+
+    " input
+    READ TABLE it_key_tab INTO ls_key_tab WITH KEY name = 'OrdemID'.
+    IF sy-subrc <> 0.
+      lo_msg->add_message_text_only(
+        EXPORTING
+          iv_msg_type = 'E'
+          iv_msg_text = 'Id da ordem não informado'
+      ).
+
+      RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+        EXPORTING
+          message_container = lo_msg.
+    ENDIF.
+    ld_ordemid = ls_key_tab-value.
+
+    SELECT SINGLE *
+      INTO ls_cab
+      FROM ztovheader
+     WHERE ordemid = ld_ordemid.
+
+    IF sy-subrc = 0.
+      MOVE-CORRESPONDING ls_cab TO er_entity.
+
+      CONVERT DATE ls_cab-dtcriacao
+              TIME ls_cab-hrcriacao
+         INTO TIME STAMP er_entity-datacriacao
+         TIME ZONE 'UTC'. "sy-zonlo.
+    ELSE.
+      lo_msg->add_message_text_only(
+        EXPORTING
+          iv_msg_type = 'E'
+          iv_msg_text = 'Id da ordem não encontrado'
+      ).
+
+      RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+        EXPORTING
+          message_container = lo_msg.
+    ENDIF.
+  ENDMETHOD.
 
 
-  method OV_HEADERSET_GET_ENTITYSET.
-  endmethod.
+  METHOD ov_headerset_get_entityset.
+    DATA: lt_cab       TYPE STANDARD TABLE OF ztovheader.
+    DATA: ls_cab       TYPE ztovheader.
+    DATA: ls_entityset LIKE LINE OF et_entityset.
+
+    DATA: lt_orderby   TYPE STANDARD TABLE OF string.
+    DATA: ld_orderby   TYPE string.
+
+    " montando orderby dinâmico
+    LOOP AT it_order INTO DATA(ls_order).
+      TRANSLATE ls_order-property TO UPPER CASE.
+      TRANSLATE ls_order-order TO UPPER CASE.
+      IF ls_order-order = 'DESC'.
+        ls_order-order = 'DESCENDING'.
+      ELSE.
+        ls_order-order = 'ASCENDING'.
+      ENDIF.
+      APPEND |{ ls_order-property } { ls_order-order }|
+          TO lt_orderby.
+    ENDLOOP.
+    CONCATENATE LINES OF lt_orderby INTO ld_orderby SEPARATED BY ', '. " Ajuste 05/06/2024
+
+    " ordenação obrigatória caso nenhuma seja definida
+    IF ld_orderby = '' .
+      ld_orderby = 'OrdemId ASCENDING'.
+    ENDIF.
+
+    SELECT *
+      FROM ztovheader
+     WHERE (iv_filter_string)
+  ORDER BY (ld_orderby)
+      INTO TABLE @lt_cab
+     UP TO @is_paging-top ROWS
+    OFFSET @is_paging-skip.
+
+    LOOP AT lt_cab INTO ls_cab.
+      CLEAR ls_entityset.
+      MOVE-CORRESPONDING ls_cab TO ls_entityset.
+
+      CONVERT DATE ls_cab-dtcriacao
+              TIME ls_cab-hrcriacao
+         INTO TIME STAMP ls_entityset-datacriacao
+         TIME ZONE 'UTC'. "sy-zonlo.
+
+      APPEND ls_entityset TO et_entityset.
+    ENDLOOP.
+  ENDMETHOD.
 
 
   method OV_HEADERSET_UPDATE_ENTITY.
@@ -153,12 +242,87 @@ CLASS ZCL_ZOV_DPC_EXT IMPLEMENTATION.
   endmethod.
 
 
-  method OV_ITEMSET_GET_ENTITY.
-  endmethod.
+  METHOD ov_itemset_get_entity.
+    DATA: ls_key_tab LIKE LINE OF it_key_tab.
+    DATA: ls_item    TYPE ztovitem.
+    DATA: ld_error   TYPE flag.
+
+    DATA(lo_msg) = me->/iwbep/if_mgw_conv_srv_runtime~get_message_container( ).
+
+    " input
+    READ TABLE it_key_tab INTO ls_key_tab WITH KEY name = 'OrdemID'.
+    IF sy-subrc <> 0.
+      ld_error = 'X'.
+      lo_msg->add_message_text_only(
+        EXPORTING
+          iv_msg_type = 'E'
+          iv_msg_text = 'Id da ordem não informado'
+      ).
+    ENDIF.
+    ls_item-ordemid = ls_key_tab-value.
+
+    READ TABLE it_key_tab INTO ls_key_tab WITH KEY name = 'ItemID'.
+    IF sy-subrc <> 0.
+      ld_error = 'X'.
+      lo_msg->add_message_text_only(
+        EXPORTING
+          iv_msg_type = 'E'
+          iv_msg_text = 'Id do item não informado'
+      ).
+    ENDIF.
+    ls_item-itemid = ls_key_tab-value.
+
+    IF ld_error = 'X'.
+      RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+        EXPORTING
+          message_container = lo_msg.
+    ENDIF.
+
+    SELECT SINGLE *
+      INTO ls_item
+      FROM ztovitem
+     WHERE ordemid = ls_item-ordemid
+       AND itemid  = ls_item-itemid.
+
+    IF sy-subrc = 0.
+      MOVE-CORRESPONDING ls_item TO er_entity.
+    ELSE.
+      lo_msg->add_message_text_only(
+        EXPORTING
+          iv_msg_type = 'E'
+          iv_msg_text = 'Item não encontrado'
+      ).
+
+      RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+        EXPORTING
+          message_container = lo_msg.
+    ENDIF.
+  ENDMETHOD.
 
 
-  method OV_ITEMSET_GET_ENTITYSET.
-  endmethod.
+  METHOD ov_itemset_get_entityset.
+    DATA: ld_ordemid       TYPE int4.
+    DATA: lt_ordemid_range TYPE RANGE OF int4.
+    DATA: ls_ordemid_range LIKE LINE OF lt_ordemid_range.
+    DATA: ls_key_tab       LIKE LINE OF it_key_tab.
+
+    " input
+    READ TABLE it_key_tab INTO ls_key_tab WITH KEY name = 'OrdemId'.
+    IF sy-subrc = 0.
+      ld_ordemid = ls_key_tab-value.
+
+      CLEAR ls_ordemid_range.
+      ls_ordemid_range-sign   = 'I'.
+      ls_ordemid_range-option = 'EQ'.
+      ls_ordemid_range-low    = ld_ordemid.
+      APPEND ls_ordemid_range TO lt_ordemid_range.
+    ENDIF.
+
+    SELECT *
+      INTO CORRESPONDING FIELDS OF TABLE et_entityset
+      FROM ztovitem
+     WHERE ordemid IN lt_ordemid_range.
+  ENDMETHOD.
 
 
   method OV_ITEMSET_UPDATE_ENTITY.
